@@ -1,0 +1,5 @@
+build/
+x64/
+.vs/
+.DS_Store
+.travis.yml
