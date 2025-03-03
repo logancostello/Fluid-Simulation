@@ -20,7 +20,7 @@ void WaterDrop::ResolveOutOfBounds(float width, float height, float collisionDam
     float topExcess = (position.y + radius) - top;
 
     if (bottomExcess > 0) {
-        if (bottomExcess < 0.001) {
+        if (bottomExcess < 0.1) {
             // Prevents jiggling when should be still
             position.y = bottom + radius;
         } else {
@@ -29,7 +29,7 @@ void WaterDrop::ResolveOutOfBounds(float width, float height, float collisionDam
         }
         velocity.y *= -1 * collisionDamping;
     } else if (topExcess > 0) {
-        if (topExcess < 0.01) {
+        if (topExcess < 0.1) {
             position.y = top - radius;
         } else {
             position.y -= 2 * topExcess;
@@ -44,14 +44,14 @@ void WaterDrop::ResolveOutOfBounds(float width, float height, float collisionDam
     float rightExcess = (position.x + radius) - right;
 
     if (leftExcess > 0) {
-        if (leftExcess < 0.001) {
+        if (leftExcess < 0.1) {
             position.x = left + radius;
         } else {
             position.x += 2 * leftExcess;
         }
         velocity.x *= -1 * collisionDamping;
     } else if (rightExcess > 0) {
-        if (rightExcess < 0.001) {
+        if (rightExcess < 0.1) {
             position.x = right - radius;
         } else {
             position.x -= 2 * rightExcess;

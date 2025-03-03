@@ -36,12 +36,12 @@ float collisionDamping = 0.9;
 
 float maxDensity = 0;
 
-float kernelRadius = 1.0f;
+float kernelRadius = 0.5f;
 
 void setup() {
 	water.clear();
 	if (numWaterDrops == 1) {
-		water.push_back(WaterDrop(0, 0, 0, 0.1));
+		water.push_back(WaterDrop(0, 0, 0, 1));
 	} else {
 		float sqrtDrops = sqrt(numWaterDrops);
 		float squareSize = ceil(sqrtDrops);
@@ -72,7 +72,8 @@ void setupRandom() {
 		float x = x_distrib(gen);
 		float y = y_distrib(gen);
 
-		float scale = 10 / (float)numWaterDrops;
+		// float scale = 10 / (float)numWaterDrops;
+		float scale = 0.04; // 1 / 25
 
 		water.push_back(WaterDrop(x, y, 0, scale));
 	}
@@ -102,12 +103,12 @@ public:
 		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
 			playing = !playing;
 		}
-		if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_UP) {
 			playing = false;
 			numWaterDrops += 1;
 			setup();
 		}
-		if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
+		if (key == GLFW_KEY_DOWN) {
 			playing = false;
 			numWaterDrops -= 1;
 			setup();
@@ -237,7 +238,7 @@ public:
  		vector<tinyobj::material_t> objMaterials;
  		string errStr;
 		//load in the mesh and make the shape(s)
- 		bool rc = tinyobj::LoadObj(TOshapes, objMaterials, errStr, (resourceDirectory + "/sphere.obj").c_str());
+ 		bool rc = tinyobj::LoadObj(TOshapes, objMaterials, errStr, (resourceDirectory + "/lowpolySphere.obj").c_str());
 		
 		if (!rc) {
 			cerr << errStr << endl;
@@ -338,7 +339,7 @@ public:
 
 	float smoothingKernel(float kernelRadius, float distance) {
 		if (distance > kernelRadius) return 0;
-		
+
 		float volume = 3.1415 * pow(kernelRadius, 8) / 4; 
 		float value = std::max(0.0f, kernelRadius * kernelRadius - distance * distance);
 		return value * value * value / volume;
@@ -436,8 +437,8 @@ int main(int argc, char *argv[]) {
 	} else {
 		// Create grid of water drops for start of simulation
 		numWaterDrops = atoi(argv[1]);
-		// setup();
-		setupRandom();
+		setup();
+		// setupRandom();
 	}
 
 	Application *application = new Application();
