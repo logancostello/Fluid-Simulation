@@ -19,6 +19,8 @@
 using namespace std;
 using namespace glm;
 
+bool playing = false;
+
 float bbWidth = 6.0f;
 float bbHeight = 4.0;
 
@@ -49,6 +51,14 @@ public:
 		}
 		if (key == GLFW_KEY_Z && action == GLFW_RELEASE) {
 			glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+		}
+		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+			playing = !playing;
+		}
+		if (key == GLFW_KEY_S && action == GLFW_PRESS) {
+			playing = true;
+			render();
+			playing = false;
 		}
 	}
 
@@ -278,8 +288,10 @@ public:
 		drawRectangle(bbWidth, bbHeight, prog, Model);
 
 		for (WaterDrop& waterDrop : water) {
-			waterDrop.Update(gravity);
-			waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
+			if (playing) {
+				waterDrop.Update(gravity);
+				waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
+			}
 			drawWaterDrop(waterDrop, prog, Model);
 		}
 
