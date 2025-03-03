@@ -26,7 +26,7 @@ vec3 gravity = vec3(0, -9.81, 0);
 
 int numWaterDrops;
 vector<WaterDrop> water;
-vec3 waterDropSize;
+float collisionDamping = 0.9;
 
 class Application : public EventCallbacks {
 
@@ -239,7 +239,7 @@ public:
     void drawWaterDrop(WaterDrop waterDrop, std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack>M) {
 		M->pushMatrix();
 			M->translate(waterDrop.position);
-			M->scale(waterDropSize);
+			M->scale(vec3(waterDrop.radius, waterDrop.radius, waterDrop.radius));
 			setModel(prog, M);
 			drop->draw(prog);
 		M->popMatrix();
@@ -279,6 +279,7 @@ public:
 
 		for (WaterDrop& waterDrop : water) {
 			waterDrop.Update(gravity);
+			waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
 			drawWaterDrop(waterDrop, prog, Model);
 		}
 
@@ -302,20 +303,19 @@ int main(int argc, char *argv[]) {
 		numWaterDrops = atoi(argv[1]);
 
 		if (numWaterDrops == 1) {
-			waterDropSize = vec3(0.1, 0.1, 0.1);
-			water.push_back(WaterDrop(0, 0, 0));
+			water.push_back(WaterDrop(0, 0, 0, 0.1));
 		} else {
 			float sqrtDrops = sqrt(numWaterDrops);
 			float squareSize = ceil(sqrtDrops);
 		
 			for (int i = 0; i < squareSize; i++) {
 				for (int j = 0; j < squareSize; j++) {
-					waterDropSize = vec3(1 / sqrtDrops, 1 / sqrtDrops, 1 / sqrtDrops);
+					float radius = 1 / sqrtDrops;
 					float x = (2 - 2 / sqrtDrops) * ((i / (squareSize - 1)) - 0.5);
 					float y = -(2 - 2 / sqrtDrops) * ((j / (squareSize - 1)) - 0.5);
 		
 					if (j * squareSize + i < numWaterDrops) {
-						water.push_back(WaterDrop(x, y, 0));
+						water.push_back(WaterDrop(x, y, 0, radius));
 					} 
 				}
 			}
