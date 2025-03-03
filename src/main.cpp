@@ -2,6 +2,7 @@
 #include <glad/glad.h>
 #include <cmath>
 #include <chrono>
+#include <random>
 
 #include "GLSL.h"
 #include "Program.h"
@@ -33,6 +34,10 @@ int numWaterDrops;
 vector<WaterDrop> water;
 float collisionDamping = 0.9;
 
+float maxDensity = 0;
+
+float kernelRadius = 1.0f;
+
 void setup() {
 	water.clear();
 	if (numWaterDrops == 1) {
@@ -55,6 +60,24 @@ void setup() {
 	}
 }
 
+void setupRandom() {
+	water.clear();
+	random_device rd;
+  	mt19937 gen(rd());
+
+	std::uniform_real_distribution<float> x_distrib(-bbWidth / 2, bbWidth / 2);
+	std::uniform_real_distribution<float> y_distrib(-bbHeight / 2, bbHeight / 2);
+
+	for (int i = 0; i < numWaterDrops; i++) {
+		float x = x_distrib(gen);
+		float y = y_distrib(gen);
+
+		float scale = 10 / (float)numWaterDrops;
+
+		water.push_back(WaterDrop(x, y, 0, scale));
+	}
+}
+
 class Application : public EventCallbacks {
 
 public:
@@ -65,8 +88,7 @@ public:
 
 	shared_ptr<Shape> drop;
 
-	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
-	{
+	void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods) {
 		if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		{
 			glfwSetWindowShouldClose(window, GL_TRUE);
@@ -89,10 +111,24 @@ public:
 			setup();
 			playing = false;
 		}
+		if (key == GLFW_KEY_P && action == GLFW_PRESS) {
+			kernelRadius += 0.1;
+			maxDensity = 0;
+		}
+		if (key == GLFW_KEY_L && action == GLFW_PRESS) {
+			kernelRadius -= 0.1;
+			kernelRadius = std::max(kernelRadius, 0.1f);
+		}
 	}
 
 	void mouseCallback(GLFWwindow *window, int button, int action, int mods) {
-		
+		double posX, posY;
+
+		if (action == GLFW_PRESS)
+		{
+			 glfwGetCursorPos(window, &posX, &posY);
+			 cout << "Density: " << calculateDensity(vec2(posX, posY)) << endl;
+		}
 	}
 
 	void resizeCallback(GLFWwindow *window, int width, int height) {
@@ -115,6 +151,8 @@ public:
 		prog->addUniform("P");
 		prog->addUniform("V");
 		prog->addUniform("M");
+		prog->addUniform("density");
+		prog->addUniform("maxDensity");
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
 	}
@@ -284,6 +322,25 @@ public:
 		M->popMatrix();
     }
 
+	float smoothingKernel(float kernelRadius, float distance) {
+		float volume = 3.1415 * pow(kernelRadius, 8) / 4; 
+		float value = std::max(0.0f, kernelRadius * kernelRadius - distance * distance);
+		return value * value * value / volume;
+	} 
+
+	float calculateDensity(vec2 samplePoint) {
+		float density = 0;
+		float mass = 1;
+
+		for (WaterDrop& drop : water) {
+			float distance = length(vec2(drop.position.x, drop.position.y) - samplePoint);
+			float influence = smoothingKernel(kernelRadius, distance);
+			density += influence * mass;
+		}
+
+		return density;
+	} 
+
 	void render(float deltaTime) {
 		// Get current frame buffer size.
 		int width, height;
@@ -321,8 +378,12 @@ public:
 				waterDrop.Update(gravity, deltaTime);
 				waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
 			}
+			float currentDensity = calculateDensity(vec2(waterDrop.position.x, waterDrop.position.y));
+			maxDensity = std::max(currentDensity, maxDensity);
+			glUniform1f(prog->getUniform("density"), currentDensity);
 			drawWaterDrop(waterDrop, prog, Model);
 		}
+		glUniform1f(prog->getUniform("maxDensity"), maxDensity);
 
 		prog->unbind();
 
@@ -351,7 +412,8 @@ int main(int argc, char *argv[]) {
 	} else {
 		// Create grid of water drops for start of simulation
 		numWaterDrops = atoi(argv[1]);
-		setup();
+		// setup();
+		setupRandom();
 	}
 
 	Application *application = new Application();
