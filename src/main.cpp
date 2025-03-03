@@ -30,6 +30,28 @@ int numWaterDrops;
 vector<WaterDrop> water;
 float collisionDamping = 0.9;
 
+void setup() {
+	water.clear();
+	if (numWaterDrops == 1) {
+		water.push_back(WaterDrop(0, 0, 0, 0.1));
+	} else {
+		float sqrtDrops = sqrt(numWaterDrops);
+		float squareSize = ceil(sqrtDrops);
+	
+		for (int i = 0; i < squareSize; i++) {
+			for (int j = 0; j < squareSize; j++) {
+				float radius = 1 / sqrtDrops;
+				float x = (2 - 2 / sqrtDrops) * ((i / (squareSize - 1)) - 0.5);
+				float y = -(2 - 2 / sqrtDrops) * ((j / (squareSize - 1)) - 0.5);
+	
+				if (j * squareSize + i < numWaterDrops) {
+					water.push_back(WaterDrop(x, y, 0, radius));
+				} 
+			}
+		}
+	}
+}
+
 class Application : public EventCallbacks {
 
 public:
@@ -58,6 +80,10 @@ public:
 		if (key == GLFW_KEY_S && action == GLFW_PRESS) {
 			playing = true;
 			render();
+			playing = false;
+		}
+		if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+			setup();
 			playing = false;
 		}
 	}
@@ -313,25 +339,7 @@ int main(int argc, char *argv[]) {
 	} else {
 		// Create grid of water drops for start of simulation
 		numWaterDrops = atoi(argv[1]);
-
-		if (numWaterDrops == 1) {
-			water.push_back(WaterDrop(0, 0, 0, 0.1));
-		} else {
-			float sqrtDrops = sqrt(numWaterDrops);
-			float squareSize = ceil(sqrtDrops);
-		
-			for (int i = 0; i < squareSize; i++) {
-				for (int j = 0; j < squareSize; j++) {
-					float radius = 1 / sqrtDrops;
-					float x = (2 - 2 / sqrtDrops) * ((i / (squareSize - 1)) - 0.5);
-					float y = -(2 - 2 / sqrtDrops) * ((j / (squareSize - 1)) - 0.5);
-		
-					if (j * squareSize + i < numWaterDrops) {
-						water.push_back(WaterDrop(x, y, 0, radius));
-					} 
-				}
-			}
-		}
+		setup();
 	}
 
 	Application *application = new Application();
