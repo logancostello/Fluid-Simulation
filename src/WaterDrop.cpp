@@ -7,9 +7,9 @@ WaterDrop::WaterDrop(float x, float y, float z, float radius) : position(x, y, z
     velocity = glm::vec3(0, 0, 0);
 }
 
-void WaterDrop::Update(glm::vec3 acceleration) {
-    velocity += acceleration * 0.016f; // 60 fps
-    position += velocity * 0.016f;
+void WaterDrop::Update(glm::vec3 acceleration, float deltaTime) {
+    velocity += acceleration * deltaTime; 
+    position += velocity * deltaTime;
 }
 
 void WaterDrop::ResolveOutOfBounds(float width, float height, float collisionDamping) {

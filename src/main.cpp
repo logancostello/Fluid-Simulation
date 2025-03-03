@@ -1,6 +1,7 @@
 #include <iostream>
 #include <glad/glad.h>
 #include <cmath>
+#include <chrono>
 
 #include "GLSL.h"
 #include "Program.h"
@@ -18,6 +19,8 @@
 
 using namespace std;
 using namespace glm;
+
+std::chrono::high_resolution_clock::time_point lastFrameTime;
 
 bool playing = false;
 
@@ -79,7 +82,7 @@ public:
 		}
 		if (key == GLFW_KEY_S && action == GLFW_PRESS) {
 			playing = true;
-			render();
+			render(0.016f); // 60 fps
 			playing = false;
 		}
 		if (key == GLFW_KEY_R && action == GLFW_PRESS) {
@@ -281,7 +284,7 @@ public:
 		M->popMatrix();
     }
 
-	void render() {
+	void render(float deltaTime) {
 		// Get current frame buffer size.
 		int width, height;
 		glfwGetFramebufferSize(windowManager->getHandle(), &width, &height);
@@ -315,7 +318,7 @@ public:
 
 		for (WaterDrop& waterDrop : water) {
 			if (playing) {
-				waterDrop.Update(gravity);
+				waterDrop.Update(gravity, deltaTime);
 				waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
 			}
 			drawWaterDrop(waterDrop, prog, Model);
@@ -328,6 +331,15 @@ public:
 
 	}
 };
+
+float getDeltaTime() {
+    auto currentFrameTime = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<float> deltaTime = currentFrameTime - lastFrameTime;
+    lastFrameTime = currentFrameTime;
+
+    return deltaTime.count();
+}
+
 
 int main(int argc, char *argv[]) {
 	// Where the resources are loaded from
@@ -358,11 +370,15 @@ int main(int argc, char *argv[]) {
 	application->init(resourceDir);
 	application->initGeom(resourceDir);
 
+	lastFrameTime = std::chrono::high_resolution_clock::now();
+
 	// Loop until the user closes the window.
 	while (! glfwWindowShouldClose(windowManager->getHandle()))
-	{
+	{ 
+		float deltaTime = getDeltaTime();
+
 		// Render scene.
-		application->render();
+		application->render(deltaTime);
 
 		// Swap front and back buffers.
 		glfwSwapBuffers(windowManager->getHandle());

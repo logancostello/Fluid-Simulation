@@ -11,7 +11,7 @@ public:
     
     WaterDrop(float x = 0.0f, float y = 0.0f, float z = 0.0f, float radius = 0.1);
 
-    void Update(glm::vec3 accleration);
+    void Update(glm::vec3 accleration, float deltaTime);
 
     void ResolveOutOfBounds(float width, float height, float collisionDamping);
 };
