@@ -19,6 +19,10 @@
 using namespace std;
 using namespace glm;
 
+float bbWidth = 6.0f;
+float bbHeight = 4.0;
+
+vec3 gravity = vec3(0, -9.81, 0);
 
 int numWaterDrops;
 vector<WaterDrop> water;
@@ -161,6 +165,77 @@ public:
 		glUniformMatrix4fv(prog->getUniform("M"), 1, GL_FALSE, value_ptr(M->topMatrix()));
     }
 
+	void drawRectangle(float width, float height, std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack> M) {
+		// Save the current matrix state
+		M->pushMatrix();
+		
+		// Create vertices for the rectangle centered at origin
+		GLfloat vertices[] = {
+			-width/2, -height/2, 0.0f,  // Bottom-left  (0)
+			 width/2, -height/2, 0.0f,  // Bottom-right (1)
+			 width/2,  height/2, 0.0f,  // Top-right    (2)
+			-width/2,  height/2, 0.0f   // Top-left     (3)
+		};
+		
+		// Simple normal (all pointing in z-direction)
+		GLfloat normals[] = {
+			0.0f, 0.0f, 1.0f,
+			0.0f, 0.0f, 1.0f,
+			0.0f, 0.0f, 1.0f,
+			0.0f, 0.0f, 1.0f
+		};
+		
+		// Indices for drawing lines (edges only)
+		GLuint indices[] = {
+			0, 1,  // Bottom edge
+			1, 2,  // Right edge
+			2, 3,  // Top edge
+			3, 0   // Left edge
+		};
+		
+		// Create and bind vertex array object
+		GLuint VAO, VBO_pos, VBO_nor, EBO;
+		glGenVertexArrays(1, &VAO);
+		glGenBuffers(1, &VBO_pos);
+		glGenBuffers(1, &VBO_nor);
+		glGenBuffers(1, &EBO);
+		
+		glBindVertexArray(VAO);
+		
+		// Set up position attribute
+		glBindBuffer(GL_ARRAY_BUFFER, VBO_pos);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(prog->getAttribute("vertPos"));
+		glVertexAttribPointer(prog->getAttribute("vertPos"), 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
+		
+		// Set up normal attribute
+		glBindBuffer(GL_ARRAY_BUFFER, VBO_nor);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(normals), normals, GL_STATIC_DRAW);
+		glEnableVertexAttribArray(prog->getAttribute("vertNor"));
+		glVertexAttribPointer(prog->getAttribute("vertNor"), 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
+		
+		// Set up element buffer
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+		
+		// Set model matrix for the rectangle
+		setModel(prog, M);
+		
+		// Draw the rectangle edges only
+		glBindVertexArray(VAO);
+		glDrawElements(GL_LINES, 8, GL_UNSIGNED_INT, 0);
+		glBindVertexArray(0);
+		
+		// Clean up
+		glDeleteVertexArrays(1, &VAO);
+		glDeleteBuffers(1, &VBO_pos);
+		glDeleteBuffers(1, &VBO_nor);
+		glDeleteBuffers(1, &EBO);
+		
+		// Restore the matrix state
+		M->popMatrix();
+	}
+
     void drawWaterDrop(WaterDrop waterDrop, std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack>M) {
 		M->pushMatrix();
 			M->translate(waterDrop.position);
@@ -200,7 +275,10 @@ public:
 		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
 		glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, value_ptr(View->topMatrix()));
 
-		for (WaterDrop waterDrop : water) {
+		drawRectangle(bbWidth, bbHeight, prog, Model);
+
+		for (WaterDrop& waterDrop : water) {
+			waterDrop.Update(gravity);
 			drawWaterDrop(waterDrop, prog, Model);
 		}
 
@@ -224,7 +302,7 @@ int main(int argc, char *argv[]) {
 		numWaterDrops = atoi(argv[1]);
 
 		if (numWaterDrops == 1) {
-			waterDropSize = vec3(1, 1, 1);
+			waterDropSize = vec3(0.1, 0.1, 0.1);
 			water.push_back(WaterDrop(0, 0, 0));
 		} else {
 			float sqrtDrops = sqrt(numWaterDrops);
@@ -233,8 +311,8 @@ int main(int argc, char *argv[]) {
 			for (int i = 0; i < squareSize; i++) {
 				for (int j = 0; j < squareSize; j++) {
 					waterDropSize = vec3(1 / sqrtDrops, 1 / sqrtDrops, 1 / sqrtDrops);
-					float x = (2 - 1 / sqrtDrops) * ((i / (squareSize - 1)) - 0.5);
-					float y = -(2 - 1 / sqrtDrops) * ((j / (squareSize - 1)) - 0.5);
+					float x = (2 - 2 / sqrtDrops) * ((i / (squareSize - 1)) - 0.5);
+					float y = -(2 - 2 / sqrtDrops) * ((j / (squareSize - 1)) - 0.5);
 		
 					if (j * squareSize + i < numWaterDrops) {
 						water.push_back(WaterDrop(x, y, 0));
