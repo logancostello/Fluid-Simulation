@@ -102,6 +102,16 @@ public:
 		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
 			playing = !playing;
 		}
+		if (key == GLFW_KEY_UP && action == GLFW_PRESS) {
+			playing = false;
+			numWaterDrops += 1;
+			setup();
+		}
+		if (key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
+			playing = false;
+			numWaterDrops -= 1;
+			setup();
+		}
 		if (key == GLFW_KEY_S && action == GLFW_PRESS) {
 			playing = true;
 			render(0.016f); // 60 fps
@@ -109,6 +119,10 @@ public:
 		}
 		if (key == GLFW_KEY_R && action == GLFW_PRESS) {
 			setup();
+			playing = false;
+		}
+		if (key == GLFW_KEY_T && action == GLFW_PRESS) {
+			setupRandom();
 			playing = false;
 		}
 		if (key == GLFW_KEY_P && action == GLFW_PRESS) {
@@ -323,6 +337,8 @@ public:
     }
 
 	float smoothingKernel(float kernelRadius, float distance) {
+		if (distance > kernelRadius) return 0;
+		
 		float volume = 3.1415 * pow(kernelRadius, 8) / 4; 
 		float value = std::max(0.0f, kernelRadius * kernelRadius - distance * distance);
 		return value * value * value / volume;
@@ -373,17 +389,25 @@ public:
 
 		drawRectangle(bbWidth, bbHeight, prog, Model);
 
+		vector<float> densities;
+		maxDensity = 0;
+
 		for (WaterDrop& waterDrop : water) {
 			if (playing) {
 				waterDrop.Update(gravity, deltaTime);
 				waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
 			}
 			float currentDensity = calculateDensity(vec2(waterDrop.position.x, waterDrop.position.y));
+			densities.push_back(currentDensity);
 			maxDensity = std::max(currentDensity, maxDensity);
-			glUniform1f(prog->getUniform("density"), currentDensity);
-			drawWaterDrop(waterDrop, prog, Model);
 		}
+
 		glUniform1f(prog->getUniform("maxDensity"), maxDensity);
+		for (int i = 0; i < water.size(); i++) {
+			glUniform1f(prog->getUniform("density"), densities[i]);
+			drawWaterDrop(water[i], prog, Model);
+		}
+		
 
 		prog->unbind();
 
