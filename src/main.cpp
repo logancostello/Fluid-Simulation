@@ -203,8 +203,7 @@ public:
 		prog->addUniform("P");
 		prog->addUniform("V");
 		prog->addUniform("M");
-		prog->addUniform("density");
-		prog->addUniform("maxDensity");
+		prog->addUniform("densityDifference");
 		prog->addAttribute("vertPos");
 		prog->addAttribute("vertNor");
 	}
@@ -574,10 +573,8 @@ public:
 			maxDensity = std::max(currentDensity, maxDensity);
 		}
 
-		glUniform1f(prog->getUniform("maxDensity"), maxDensity);
-
 		for (int i = 0; i < water.size(); i++) {
-			glUniform1f(prog->getUniform("density"), densities[i]);
+			glUniform1f(prog->getUniform("densityDifference"), densities[i] - targetDensity);
 			if (playing) {
 				vec3 pressure = calculatePressureForce(i);
 				water[i].Update(pressure / densities[i], deltaTime);
@@ -646,6 +643,8 @@ int main(int argc, char *argv[]) {
 		cout << "Target Density: " << targetDensity << endl;
 		cout << "Kernel Radius: " << kernelRadius << endl;
 		cout << "Pressure Multiplier: " << pressureMultiplier << endl;
+		cout << "Gravity: " << gravity.y << endl;
+
 		// float deltaTime = getDeltaTime();
 		float deltaTime = 1.0f / 240.0f;
 

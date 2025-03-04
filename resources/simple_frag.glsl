@@ -1,7 +1,6 @@
 #version 330 core 
 in vec3 fragNor;
-in float fragDensity;
-in float fragMaxDensity;
+in float fragDensityDifference;
 out vec4 color;
 
 void main()
@@ -11,5 +10,13 @@ void main()
 	// vec3 Ncolor = 0.5*normal + 0.5;
 	// color = vec4(Ncolor, 1.0);
 
-	color = vec4(fragDensity / fragMaxDensity, 0, (fragMaxDensity - fragDensity) / fragMaxDensity, 1.0);
+	if (fragDensityDifference == 0) {
+		color = vec4(1, 1, 1, 1.0);
+	} else if (fragDensityDifference > 0) {
+		float x = 1 / (1 + fragDensityDifference);
+		color = vec4(1, x, x, 1);
+	} else {
+		float x = 1 / (1 + -1 * fragDensityDifference);
+		color = vec4(x, x, 1, 1);
+	}
 }
