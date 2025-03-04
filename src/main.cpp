@@ -17,6 +17,8 @@
 // value_ptr for glm
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/random.hpp>
+
 
 using namespace std;
 using namespace glm;
@@ -24,19 +26,24 @@ using namespace glm;
 std::chrono::high_resolution_clock::time_point lastFrameTime;
 
 bool playing = false;
+vector<float> densities;
 
 float bbWidth = 6.0f;
-float bbHeight = 4.0;
+float bbHeight = 4.0f;
 
-vec3 gravity = vec3(0, -9.81, 0);
+vec3 gravity = vec3(0, 0, 0);
 
 int numWaterDrops;
 vector<WaterDrop> water;
-float collisionDamping = 0.9;
+float collisionDamping = 0.5;
 
 float maxDensity = 0;
+float targetDensity = 5.0f;
+float pressureMultiplier = 20;
 
-float kernelRadius = 0.5f;
+float kernelRadius = 0.7f;
+
+vector<vec3> predictedPositions;
 
 void setup() {
 	water.clear();
@@ -79,6 +86,18 @@ void setupRandom() {
 	}
 }
 
+glm::vec3 randomDirection() {
+    glm::vec3 dir;
+    do {
+        dir = glm::vec3(
+            glm::linearRand(-1.0f, 1.0f),
+            glm::linearRand(-1.0f, 1.0f),
+            0
+        );
+    } while (glm::length(dir) == 0.0f); // Avoid zero vector
+    return glm::normalize(dir);
+}
+
 class Application : public EventCallbacks {
 
 public:
@@ -103,12 +122,12 @@ public:
 		if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
 			playing = !playing;
 		}
-		if (key == GLFW_KEY_UP) {
+		if (key == GLFW_KEY_UP && action != GLFW_RELEASE) {
 			playing = false;
 			numWaterDrops += 1;
 			setup();
 		}
-		if (key == GLFW_KEY_DOWN) {
+		if (key == GLFW_KEY_DOWN && action != GLFW_RELEASE) {
 			playing = false;
 			numWaterDrops -= 1;
 			setup();
@@ -133,6 +152,24 @@ public:
 		if (key == GLFW_KEY_L && action == GLFW_PRESS) {
 			kernelRadius -= 0.1;
 			kernelRadius = std::max(kernelRadius, 0.1f);
+		}
+		if (key == GLFW_KEY_O && action == GLFW_PRESS) {
+			targetDensity += 1.0f;
+		}
+		if (key == GLFW_KEY_K && action == GLFW_PRESS) {
+			targetDensity -= 1.0f;
+		}
+		if (key == GLFW_KEY_I && action == GLFW_PRESS) {
+			pressureMultiplier += 1.0f;
+		}
+		if (key == GLFW_KEY_J && action == GLFW_PRESS) {
+			pressureMultiplier -= 1.0f;
+		}
+		if (key == GLFW_KEY_U && action == GLFW_PRESS) {
+			gravity += vec3(0, 1, 0);
+		}
+		if (key == GLFW_KEY_H && action == GLFW_PRESS) {
+			gravity -= vec3(0, 1, 0);
 		}
 	}
 
@@ -328,6 +365,87 @@ public:
 		M->popMatrix();
 	}
 
+	void drawCircle(float radius, int segments, std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack> M) {
+		// Save the current matrix state
+		M->pushMatrix();
+		
+		// Calculate vertices for the circle
+		std::vector<GLfloat> vertices;
+		std::vector<GLuint> indices;
+		
+		// Center of the circle (0, 0, 0)
+		vertices.push_back(0.0f);  // x
+		vertices.push_back(0.0f);  // y
+		vertices.push_back(0.0f);  // z
+		
+		// Create vertices around the circle
+		for (int i = 0; i <= segments; ++i) {
+			float angle = (i * 2.0f * M_PI) / segments;
+			vertices.push_back(radius * cos(angle));  // x
+			vertices.push_back(radius * sin(angle));  // y
+			vertices.push_back(0.0f);  // z
+		}
+		
+		// Create indices to form the lines of the circle
+		for (int i = 1; i < segments; ++i) {
+			indices.push_back(0);  // Center of the circle
+			indices.push_back(i);  // Current vertex on the circle
+		}
+		// Close the circle by connecting the last vertex to the first one
+		indices.push_back(0);
+		indices.push_back(segments);
+	
+		// Simple normal (all pointing in z-direction)
+		std::vector<GLfloat> normals(vertices.size(), 0.0f);
+		for (int i = 0; i < vertices.size() / 3; ++i) {
+			normals[i * 3 + 2] = 1.0f;  // Set z-component of the normal
+		}
+	
+		// Create and bind vertex array object
+		GLuint VAO, VBO_pos, VBO_nor, EBO;
+		glGenVertexArrays(1, &VAO);
+		glGenBuffers(1, &VBO_pos);
+		glGenBuffers(1, &VBO_nor);
+		glGenBuffers(1, &EBO);
+		
+		glBindVertexArray(VAO);
+		
+		// Set up position attribute
+		glBindBuffer(GL_ARRAY_BUFFER, VBO_pos);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
+		glEnableVertexAttribArray(prog->getAttribute("vertPos"));
+		glVertexAttribPointer(prog->getAttribute("vertPos"), 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
+		
+		// Set up normal attribute
+		glBindBuffer(GL_ARRAY_BUFFER, VBO_nor);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat) * normals.size(), normals.data(), GL_STATIC_DRAW);
+		glEnableVertexAttribArray(prog->getAttribute("vertNor"));
+		glVertexAttribPointer(prog->getAttribute("vertNor"), 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
+		
+		// Set up element buffer
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * indices.size(), indices.data(), GL_STATIC_DRAW);
+		
+		// Set model matrix for the circle
+		setModel(prog, M);
+		
+		// Draw the circle (as lines from center to each vertex)
+		glBindVertexArray(VAO);
+		glDrawElements(GL_LINES, indices.size(), GL_UNSIGNED_INT, 0);
+		glBindVertexArray(0);
+		
+		// Clean up
+		glDeleteVertexArrays(1, &VAO);
+		glDeleteBuffers(1, &VBO_pos);
+		glDeleteBuffers(1, &VBO_nor);
+		glDeleteBuffers(1, &EBO);
+		
+		// Restore the matrix state
+		M->popMatrix();
+	}
+	
+	
+
     void drawWaterDrop(WaterDrop waterDrop, std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack>M) {
 		M->pushMatrix();
 			M->translate(waterDrop.position);
@@ -337,13 +455,63 @@ public:
 		M->popMatrix();
     }
 
-	float smoothingKernel(float kernelRadius, float distance) {
-		if (distance > kernelRadius) return 0;
-
-		float volume = 3.1415 * pow(kernelRadius, 8) / 4; 
-		float value = std::max(0.0f, kernelRadius * kernelRadius - distance * distance);
-		return value * value * value / volume;
+	float densityToPressure(float density) {
+		if (density < 0.0f) {
+			return 0.0f;  // Return zero pressure for negative densities
+		}
+	
+		float densityDifference = density - targetDensity;
+		float pressure = densityDifference * pressureMultiplier;
+		return pressure;
 	} 
+
+	float calculateSharedPressure(float density1, float density2) {
+		return (densityToPressure(density1) + densityToPressure(density2)) / 2.0;
+	}
+
+	vec3 calculatePressureForce(int samplePointIndex) {
+		vec3 pressureForce = vec3(0.0f, 0.0f, 0.0f);
+
+		for (int i = 0; i < numWaterDrops; i++) {
+			if (i == samplePointIndex) continue;
+
+			vec3 difference = predictedPositions[i] - water[samplePointIndex].position;
+			float distance = length(difference);
+
+			vec3 direction;
+			if (distance == 0) {
+				direction = randomDirection(); //should make this random later
+			} else {
+				direction = difference / distance;
+			}
+
+			float slope = smoothingKernelDerivative(kernelRadius, distance);
+			float density = densities[i];
+			float mass = 1.0;
+			float sharedPressure = calculateSharedPressure(density, densities[samplePointIndex]);
+			pressureForce += sharedPressure * direction * slope * mass / density; 
+			
+		}
+
+		return pressureForce;
+	}
+
+	float smoothingKernel(float kernelRadius, float distance) {
+		if (distance >= kernelRadius) return 0;
+
+		float volume = (3.1415 * pow(kernelRadius, 4)) / 6; 
+		return (kernelRadius - distance) * (kernelRadius - distance) / volume;
+		
+	} 
+
+	float smoothingKernelDerivative(float kernelRadius, float distance) {
+		if (distance >= kernelRadius) return 0;
+
+		float scale = 12 / (pow(kernelRadius, 4) * 3.1415);
+		return (distance - kernelRadius) * scale;
+
+	}	
+	
 
 	float calculateDensity(vec2 samplePoint) {
 		float density = 0;
@@ -389,23 +557,35 @@ public:
 		glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, value_ptr(View->topMatrix()));
 
 		drawRectangle(bbWidth, bbHeight, prog, Model);
+		drawCircle(kernelRadius, 100, prog, Model);
 
-		vector<float> densities;
+		predictedPositions.clear();
+		for (WaterDrop& drop : water) {
+			predictedPositions.push_back(drop.position + drop.velocity * 1.0f / 120.0f);
+		}
+
+		densities.clear();
 		maxDensity = 0;
 
-		for (WaterDrop& waterDrop : water) {
-			if (playing) {
-				waterDrop.Update(gravity, deltaTime);
-				waterDrop.ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
-			}
-			float currentDensity = calculateDensity(vec2(waterDrop.position.x, waterDrop.position.y));
+		// Calculate the densities per drop
+		for (int i = 0; i < predictedPositions.size(); i++) {
+			float currentDensity = calculateDensity(vec2(predictedPositions[i].x, predictedPositions[i].y));
 			densities.push_back(currentDensity);
 			maxDensity = std::max(currentDensity, maxDensity);
 		}
 
 		glUniform1f(prog->getUniform("maxDensity"), maxDensity);
+
 		for (int i = 0; i < water.size(); i++) {
 			glUniform1f(prog->getUniform("density"), densities[i]);
+			if (playing) {
+				vec3 pressure = calculatePressureForce(i);
+				water[i].Update(pressure / densities[i], deltaTime);
+				water[i].Update(gravity, deltaTime);
+				water[i].velocity *= 0.995;
+				water[i].ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
+			}
+			
 			drawWaterDrop(water[i], prog, Model);
 		}
 		
@@ -437,8 +617,8 @@ int main(int argc, char *argv[]) {
 	} else {
 		// Create grid of water drops for start of simulation
 		numWaterDrops = atoi(argv[1]);
-		setup();
-		// setupRandom();
+		// setup();
+		setupRandom();
 	}
 
 	Application *application = new Application();
@@ -462,7 +642,12 @@ int main(int argc, char *argv[]) {
 	// Loop until the user closes the window.
 	while (! glfwWindowShouldClose(windowManager->getHandle()))
 	{ 
-		float deltaTime = getDeltaTime();
+		cout << "=================" << endl;
+		cout << "Target Density: " << targetDensity << endl;
+		cout << "Kernel Radius: " << kernelRadius << endl;
+		cout << "Pressure Multiplier: " << pressureMultiplier << endl;
+		// float deltaTime = getDeltaTime();
+		float deltaTime = 1.0f / 240.0f;
 
 		// Render scene.
 		application->render(deltaTime);
