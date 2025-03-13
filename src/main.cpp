@@ -28,22 +28,24 @@ std::chrono::high_resolution_clock::time_point lastFrameTime;
 bool playing = false;
 vector<float> densities;
 
-float bbWidth = 6.0f;
-float bbHeight = 4.0f;
+int bbWidth = 18;
+int bbHeight = 12;
 
-vec3 gravity = vec3(0, 0, 0);
+vec3 gravity = vec3(0, 0.0, 0);
 
 int numWaterDrops;
 vector<WaterDrop> water;
 float collisionDamping = 0.5;
 
-float maxDensity = 0;
-float targetDensity = 5.0f;
-float pressureMultiplier = 20;
+float targetDensity = 4.0f;
+float pressureMultiplier = 8;
 
-float kernelRadius = 0.7f;
+float kernelRadius = 0.9f;
+float viscosityStrength = -0.5f;
 
 vector<vec3> predictedPositions;
+
+vector<int> cells;
 
 void setup() {
 	water.clear();
@@ -80,7 +82,8 @@ void setupRandom() {
 		float y = y_distrib(gen);
 
 		// float scale = 10 / (float)numWaterDrops;
-		float scale = 0.04; // 1 / 25
+		// float scale = 0.04; // 1 / 25
+		float scale = 0.1;
 
 		water.push_back(WaterDrop(x, y, 0, scale));
 	}
@@ -125,6 +128,10 @@ public:
 		if (key == GLFW_KEY_UP && action != GLFW_RELEASE) {
 			playing = false;
 			numWaterDrops += 1;
+			predictedPositions.clear();
+			predictedPositions.resize(numWaterDrops);
+			densities.clear();
+			densities.resize(numWaterDrops);
 			setup();
 		}
 		if (key == GLFW_KEY_DOWN && action != GLFW_RELEASE) {
@@ -147,7 +154,6 @@ public:
 		}
 		if (key == GLFW_KEY_P && action == GLFW_PRESS) {
 			kernelRadius += 0.1;
-			maxDensity = 0;
 		}
 		if (key == GLFW_KEY_L && action == GLFW_PRESS) {
 			kernelRadius -= 0.1;
@@ -171,6 +177,12 @@ public:
 		if (key == GLFW_KEY_H && action == GLFW_PRESS) {
 			gravity -= vec3(0, 1, 0);
 		}
+		if (key == GLFW_KEY_Y && action == GLFW_PRESS) {
+			viscosityStrength += 0.1;
+		}
+		if (key == GLFW_KEY_G && action == GLFW_PRESS) {
+			viscosityStrength -= 0.1;
+		}
 	}
 
 	void mouseCallback(GLFWwindow *window, int button, int action, int mods) {
@@ -178,8 +190,7 @@ public:
 
 		if (action == GLFW_PRESS)
 		{
-			 glfwGetCursorPos(window, &posX, &posY);
-			 cout << "Density: " << calculateDensity(vec2(posX, posY)) << endl;
+			 
 		}
 	}
 
@@ -274,7 +285,7 @@ public:
  		vector<tinyobj::material_t> objMaterials;
  		string errStr;
 		//load in the mesh and make the shape(s)
- 		bool rc = tinyobj::LoadObj(TOshapes, objMaterials, errStr, (resourceDirectory + "/lowpolySphere.obj").c_str());
+ 		bool rc = tinyobj::LoadObj(TOshapes, objMaterials, errStr, (resourceDirectory + "/veryLowPolySphere.obj").c_str());
 		
 		if (!rc) {
 			cerr << errStr << endl;
@@ -443,8 +454,6 @@ public:
 		M->popMatrix();
 	}
 	
-	
-
     void drawWaterDrop(WaterDrop waterDrop, std::shared_ptr<Program> prog, std::shared_ptr<MatrixStack>M) {
 		M->pushMatrix();
 			M->translate(waterDrop.position);
@@ -454,6 +463,46 @@ public:
 		M->popMatrix();
     }
 
+	int calculateCell(float x, float y) {
+		int gridWidth = (int)ceil(bbWidth / kernelRadius);
+		int xCell = (int)floor((x + bbWidth / 2) / kernelRadius);
+		int yCell = (int)floor((y + bbHeight / 2) / kernelRadius);
+		
+		// Ensure xCell and yCell are within bounds
+		xCell = max({0, min({gridWidth - 1, xCell})});
+		int gridHeight = (int)ceil(bbHeight / kernelRadius);
+		yCell = max({0, min({gridHeight - 1, yCell})});
+		
+		return gridWidth * yCell + xCell;
+	}
+	
+	vector<int> getNeighborCells(int cellIdx) {
+		vector<int> neighbors;
+	
+		// Compute grid dimensions properly
+		int gridWidth = (int)ceil(bbWidth / kernelRadius);
+		int gridHeight = (int)ceil(bbHeight / kernelRadius);
+	
+		int xCell = cellIdx % gridWidth;  // Get x coordinate in the grid
+		int yCell = cellIdx / gridWidth;  // Get y coordinate in the grid
+	
+		// Check neighboring cells in a 3x3 region
+		for (int dy = -1; dy <= 1; ++dy) {
+			for (int dx = -1; dx <= 1; ++dx) {
+				int neighborX = xCell + dx;
+				int neighborY = yCell + dy;
+	
+				// Ensure the neighboring cell is within bounds
+				if (neighborX >= 0 && neighborX < gridWidth && neighborY >= 0 && neighborY < gridHeight) {
+					int neighborCellIdx = gridWidth * neighborY + neighborX;
+					neighbors.push_back(neighborCellIdx);
+				}
+			}
+		}
+	
+		return neighbors;
+	}
+	
 	float densityToPressure(float density) {
 		if (density < 0.0f) {
 			return 0.0f;  // Return zero pressure for negative densities
@@ -468,31 +517,62 @@ public:
 		return (densityToPressure(density1) + densityToPressure(density2)) / 2.0;
 	}
 
-	vec3 calculatePressureForce(int samplePointIndex) {
+	vec3 calculatePressureForce(int samplePointIndex, const vector<vector<int>>& particlesInCell) {
 		vec3 pressureForce = vec3(0.0f, 0.0f, 0.0f);
 
-		for (int i = 0; i < numWaterDrops; i++) {
-			if (i == samplePointIndex) continue;
+		float x = water[samplePointIndex].position.x;
+		float y = water[samplePointIndex].position.y;
 
-			vec3 difference = predictedPositions[i] - water[samplePointIndex].position;
-			float distance = length(difference);
+		int cell = calculateCell(x, y);
 
-			vec3 direction;
-			if (distance == 0) {
-				direction = randomDirection(); //should make this random later
-			} else {
-				direction = difference / distance;
+		for (int cellIdx : getNeighborCells(cell)) {
+			for (int i : particlesInCell[cellIdx]) {
+				if (i == samplePointIndex) continue;
+
+				vec3 difference = predictedPositions[i] - water[samplePointIndex].position;
+				float distance = length(difference);
+	
+				vec3 direction;
+				if (distance == 0) {
+					direction = randomDirection(); //should make this random later
+				} else {
+					direction = difference / distance;
+				}
+	
+				float slope = smoothingKernelDerivative(kernelRadius, distance);
+				float density = densities[i];
+				float mass = 1.0;
+				float sharedPressure = calculateSharedPressure(density, densities[samplePointIndex]);
+				pressureForce += sharedPressure * direction * slope * mass / density; 	
 			}
-
-			float slope = smoothingKernelDerivative(kernelRadius, distance);
-			float density = densities[i];
-			float mass = 1.0;
-			float sharedPressure = calculateSharedPressure(density, densities[samplePointIndex]);
-			pressureForce += sharedPressure * direction * slope * mass / density; 
-			
 		}
-
 		return pressureForce;
+	}
+
+	float viscositySmoothingKernel(float kernelRadius, float distance) {
+		if (distance >= kernelRadius) return 0;
+
+		float volume = (3.1415 * pow(kernelRadius, 4)) / 6; 
+		return (kernelRadius - distance) * (kernelRadius - distance) / volume;
+	} 
+
+	vec3 calculateViscosity(int i, const vector<vector<int>>& particlesInCell) {
+		vec3 viscosityForce = vec3(0.0f, 0.0f, 0.0f);
+		vec3 position = water[i].position;
+
+		float x = water[i].position.x;
+		float y = water[i].position.y;
+
+		int cell = calculateCell(x, y);
+
+		for (int cellIdx : getNeighborCells(cell)) {
+			for (int particleIdx : particlesInCell[cellIdx]) {
+				float dst = length(water[i].position - water[particleIdx].position);
+				float influence = viscositySmoothingKernel(kernelRadius, dst);
+				viscosityForce += influence * (water[i].velocity - water[particleIdx].velocity);
+			}
+		}
+		return viscosityForce * viscosityStrength;
 	}
 
 	float smoothingKernel(float kernelRadius, float distance) {
@@ -500,7 +580,6 @@ public:
 
 		float volume = (3.1415 * pow(kernelRadius, 4)) / 6; 
 		return (kernelRadius - distance) * (kernelRadius - distance) / volume;
-		
 	} 
 
 	float smoothingKernelDerivative(float kernelRadius, float distance) {
@@ -508,20 +587,24 @@ public:
 
 		float scale = 12 / (pow(kernelRadius, 4) * 3.1415);
 		return (distance - kernelRadius) * scale;
-
 	}	
 	
-
-	float calculateDensity(vec2 samplePoint) {
+	float calculateDensity(int i, const vector<vector<int>>& particlesInCell) {
 		float density = 0;
 		float mass = 1;
 
-		for (WaterDrop& drop : water) {
-			float distance = length(vec2(drop.position.x, drop.position.y) - samplePoint);
-			float influence = smoothingKernel(kernelRadius, distance);
-			density += influence * mass;
-		}
+		float x = water[i].position.x;
+		float y = water[i].position.y;
 
+		int cell = calculateCell(x, y);
+
+		for (int cellIdx : getNeighborCells(cell)) {
+			for (int particleIdx : particlesInCell[cellIdx]) {
+				float distance = length(vec2(water[particleIdx].position.x, water[particleIdx].position.y) - vec2(x, y));
+				float influence = smoothingKernel(kernelRadius, distance);
+				density += influence * mass;
+			}
+		}	
 		return density;
 	} 
 
@@ -548,50 +631,71 @@ public:
 
 		// View is global translation along negative z for now
 		View->pushMatrix();
-			Model->translate(vec3(0, 0, -5));
+			Model->translate(vec3(0, 0, -15));
 
 		// Draw base Hierarchical person
 		prog->bind();
-		glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
-		glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, value_ptr(View->topMatrix()));
+		static glm::mat4 lastProjection, lastView;
+		if (Projection->topMatrix() != lastProjection) {
+			glUniformMatrix4fv(prog->getUniform("P"), 1, GL_FALSE, value_ptr(Projection->topMatrix()));
+			lastProjection = Projection->topMatrix();
+		}
+
+		if (View->topMatrix() != lastView) {
+			glUniformMatrix4fv(prog->getUniform("V"), 1, GL_FALSE, value_ptr(View->topMatrix()));
+			lastView = View->topMatrix();
+		}
+
 
 		drawRectangle(bbWidth, bbHeight, prog, Model);
-		drawCircle(kernelRadius, 100, prog, Model);
+		// drawCircle(kernelRadius, 100, prog, Model);
 
-		predictedPositions.clear();
-		for (WaterDrop& drop : water) {
-			predictedPositions.push_back(drop.position + drop.velocity * 1.0f / 120.0f);
+		// Predict Future Positions
+		predictedPositions.resize(numWaterDrops);
+		for (int i = 0; i < numWaterDrops; i++) {
+			predictedPositions[i] = water[i].position + water[i].velocity * 1.0f / 120.0f;
 		}
 
-		densities.clear();
-		maxDensity = 0;
+		// Calculate neighbors
+		int numCells = calculateCell(bbWidth, bbHeight) + 1;
+		vector<vector<int>> particlesInCell(numCells);
+		for (int i = 0; i < numWaterDrops; i++) {
+			float x = predictedPositions[i].x;
+			float y = predictedPositions[i].y;
+			int cell = calculateCell(x, y);
+			particlesInCell[cell].push_back(i);
+		}
 
-		// Calculate the densities per drop
+		// Calculate Densities
+		densities.resize(numWaterDrops);
 		for (int i = 0; i < predictedPositions.size(); i++) {
-			float currentDensity = calculateDensity(vec2(predictedPositions[i].x, predictedPositions[i].y));
-			densities.push_back(currentDensity);
-			maxDensity = std::max(currentDensity, maxDensity);
+			float currentDensity = calculateDensity(i, particlesInCell);
+			densities[i] = currentDensity;
 		}
 
+		// Update Particles
+		for (int i = 0; i < water.size(); i++) {
+			if (playing) {
+				vec3 pressure = calculatePressureForce(i, particlesInCell) / densities[i];
+				vec3 viscosity = calculateViscosity(i, particlesInCell);
+				// vec3 viscosity = vec3(0, 0, 0);
+				vec3 acceleration = pressure + viscosity + gravity;
+				water[i].Update(acceleration, deltaTime);
+				water[i].velocity *= 0.99; // Dampening
+				water[i].ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
+			}	
+		}
+
+		// Draw Particles
 		for (int i = 0; i < water.size(); i++) {
 			glUniform1f(prog->getUniform("densityDifference"), densities[i] - targetDensity);
-			if (playing) {
-				vec3 pressure = calculatePressureForce(i);
-				water[i].Update(pressure / densities[i], deltaTime);
-				water[i].Update(gravity, deltaTime);
-				water[i].velocity *= 0.995;
-				water[i].ResolveOutOfBounds(bbWidth, bbHeight, collisionDamping);
-			}
-			
 			drawWaterDrop(water[i], prog, Model);
 		}
-		
 
 		prog->unbind();
 
 		Projection->popMatrix();
 		View->popMatrix();
-
 	}
 };
 
@@ -602,7 +706,6 @@ float getDeltaTime() {
 
     return deltaTime.count();
 }
-
 
 int main(int argc, char *argv[]) {
 	// Where the resources are loaded from
@@ -639,14 +742,19 @@ int main(int argc, char *argv[]) {
 	// Loop until the user closes the window.
 	while (! glfwWindowShouldClose(windowManager->getHandle()))
 	{ 
+
+		// float deltaTime = getDeltaTime();
+		float deltaTime = min({1.0f / 20.0f, getDeltaTime()});
+
 		cout << "=================" << endl;
 		cout << "Target Density: " << targetDensity << endl;
 		cout << "Kernel Radius: " << kernelRadius << endl;
 		cout << "Pressure Multiplier: " << pressureMultiplier << endl;
 		cout << "Gravity: " << gravity.y << endl;
+		cout << "Viscosity Strength: " << viscosityStrength << endl;
+		cout << "FPS: " << 1 / deltaTime << endl;
 
-		// float deltaTime = getDeltaTime();
-		float deltaTime = 1.0f / 240.0f;
+		
 
 		// Render scene.
 		application->render(deltaTime);
@@ -656,6 +764,7 @@ int main(int argc, char *argv[]) {
 		// Poll for and process events.
 		glfwPollEvents();
 	}
+
 
 	// Quit program.
 	windowManager->shutdown();
